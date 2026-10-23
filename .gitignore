@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+output/
+site/
+data/menus.db-*
+data/*.db
+data/backups/*.db
+!data/.gitkeep
+!data/backups/.gitkeep
+/test_smart_menu.py

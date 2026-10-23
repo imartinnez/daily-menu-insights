@@ -1,0 +1,79 @@
+name: Daily Menu Insights
+
+on:
+  schedule:
+    # GitHub admite zona IANA; conserva correctamente los cambios de horario de Madrid.
+    - cron: "30 10 * * 1-5"
+      timezone: "Europe/Madrid"
+  workflow_dispatch:
+    inputs:
+      send_email:
+        description: "Enviar el correo después de validar y generar la vista previa"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-menu-insights
+  cancel-in-progress: false
+
+jobs:
+  extract-and-send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Por defecto usa solo datos oficiales. Cambia la variable de repositorio
+      # LLM_PROVIDER a gemini cuando exista GEMINI_API_KEY. Un runner hospedado no
+      # puede acceder al Ollama local del ordenador; ollama requiere runner propio.
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'none' }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Gemini 2.5 limita el acceso de proyectos nuevos y responde 404 cuando la
+      # clave no tiene ese modelo habilitado. Flash-Lite 3.5 mantiene Free Tier.
+      # La condición también migra automáticamente la variable antigua que pudo
+      # configurarse siguiendo versiones previas de este README.
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL != '' && vars.GEMINI_MODEL != 'gemini-2.5-flash' && vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
+      # El origen y las sedes son secretos para que el repositorio público no
+      # identifique la organización ni las ubicaciones analizadas.
+      MENU_SOURCE_URL: ${{ secrets.MENU_SOURCE_URL }}
+      MENU_TARGETS_JSON: ${{ secrets.MENU_TARGETS_JSON }}
+      MENU_SOURCE_LABEL: Proveedor del menú
+      REPORT_TITLE: Daily Menu Insights
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+      EMAIL_FROM_NAME: Daily Menu Insights
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      # El origen puede omitir una sede durante todo el día. Tras reintentar, es
+      # preferible entregar las sedes disponibles y marcar la ausente en el informe.
+      ALLOW_PARTIAL_EMAIL: "true"
+      SCRAPE_ATTEMPTS: ${{ vars.SCRAPE_ATTEMPTS || '4' }}
+      SCRAPE_RETRY_SECONDS: ${{ vars.SCRAPE_RETRY_SECONDS || '60' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Extraer, analizar, generar y enviar
+        shell: bash
+        run: |
+          args=(--date today --provider "$LLM_PROVIDER" --preview output/menu_today.html)
+          # La programación diaria envía una sola vez por fecha. Una ejecución manual
+          # marcada fuerza el reenvío, útil si esa fecha ya se probó en local o en Actions.
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            args+=(--send-email)
+          elif [[ "${{ inputs.send_email }}" == "true" ]]; then
+            args+=(--send-email --force-email)
+          fi
+          printf 'Ejecutando: python scraper.py'
+          printf ' %q' "${args[@]}"
+          printf '\n'
+          python scraper.py "${args[@]}"
