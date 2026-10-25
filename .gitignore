@@ -2,12 +2,9 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.mypy_cache/
 *.py[cod]
 output/
 site/
-data/menus.db-*
-data/*.db
-data/backups/*.db
-!data/.gitkeep
-!data/backups/.gitkeep
+data/
 /test_smart_menu.py
